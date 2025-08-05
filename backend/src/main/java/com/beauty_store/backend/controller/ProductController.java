@@ -1,15 +1,19 @@
 package com.beauty_store.backend.controller;
 
-import com.beauty_store.backend.model.Product;
-import com.beauty_store.backend.repository.ProductRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.beauty_store.backend.model.Product;
+import com.beauty_store.backend.repository.ProductRepository;
+
 @RestController
-@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
+@CrossOrigin(origins = "*", allowCredentials = "true")
 @RequestMapping("/api/product")
 public class ProductController {
 
