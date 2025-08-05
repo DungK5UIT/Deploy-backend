@@ -24,6 +24,7 @@ public class UserService {
         user.setEmail(userDTO.getEmail());
         user.setPassword(userDTO.getPassword()); // Lưu plain text theo yêu cầu
         user.setRememberMe(userDTO.isRememberMe());
+        user.setOnline(false); // User mới mặc định offline
 
         return userRepository.save(user);
     }
@@ -36,6 +37,18 @@ public class UserService {
             throw new Exception("Mật khẩu không đúng");
         }
 
-        return user;
+        if (user.isOnline()) {
+            throw new Exception("Tài khoản đang được đăng nhập ở nơi khác");
+        }
+
+        user.setOnline(true); // Đặt trạng thái online
+        return userRepository.save(user); // Lưu trạng thái
+    }
+
+    public void logoutUser(Long userId) throws Exception {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new Exception("Không tìm thấy người dùng"));
+        user.setOnline(false); // Đặt trạng thái offline
+        userRepository.save(user);
     }
 }

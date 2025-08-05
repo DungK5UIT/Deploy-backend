@@ -38,6 +38,16 @@ public class UserController {
         }
     }
 
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@RequestBody AuthResponse authResponse) {
+        try {
+            userService.logoutUser(authResponse.getId());
+            return ResponseEntity.ok("Đăng xuất thành công");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     static class AuthResponse {
         private Long id;
         private String email;

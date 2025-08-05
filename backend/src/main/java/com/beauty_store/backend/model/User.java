@@ -1,6 +1,11 @@
 package com.beauty_store.backend.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.Data;
 
 @Entity
@@ -22,43 +27,54 @@ public class User {
 
     private boolean rememberMe;
 
-	public Long getId() {
-		return id;
-	}
+    @Column(nullable = false)
+    private boolean isOnline = false; // Thêm trường isOnline, mặc định là false
 
-	public void setId(Long id) {
-		this.id = id;
-	}
+    public Long getId() {
+        return id;
+    }
 
-	public String getFullName() {
-		return fullName;
-	}
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-	public void setFullName(String fullName) {
-		this.fullName = fullName;
-	}
+    public String getFullName() {
+        return fullName;
+    }
 
-	public String getEmail() {
-		return email;
-	}
+    public void setFullName(String fullName) {
+        this.fullName = fullName;
+    }
 
-	public void setEmail(String email) {
-		this.email = email;
-	}
+    public String getEmail() {
+        return email;
+    }
 
-	public String getPassword() {
-		return password;
-	}
+    public void setEmail(String email) {
+        this.email = email;
+    }
 
-	public void setPassword(String password) {
-		this.password = password;
-	}
+    public String getPassword() {
+        return password;
+    }
 
-	public boolean isRememberMe() {
-		return rememberMe;
-	}
+    public void setPassword(String password) {
+        this.password = password;
+    }
 
-	public void setRememberMe(boolean rememberMe) {
-		this.rememberMe = rememberMe;
-	}
+    public boolean isRememberMe() {
+        return rememberMe;
+    }
+
+    public void setRememberMe(boolean rememberMe) {
+        this.rememberMe = rememberMe;
+    }
+
+    public boolean isOnline() {
+        return isOnline;
+    }
+
+    public void setOnline(boolean online) {
+        this.isOnline = online;
+    }
 }
