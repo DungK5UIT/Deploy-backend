@@ -38,7 +38,7 @@ public class UserService {
         }
 
         if (user.isOnline()) {
-            throw new Exception("Tài khoản đang được đăng nhập ở nơi khác");
+            throw new Exception("Tài khoản hiện đã có người đăng nhập");
         }
 
         user.setOnline(true); // Đặt trạng thái online

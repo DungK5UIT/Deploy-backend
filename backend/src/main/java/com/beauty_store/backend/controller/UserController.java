@@ -39,9 +39,9 @@ public class UserController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestBody AuthResponse authResponse) {
+    public ResponseEntity<?> logout(@RequestBody LogoutRequest logoutRequest) {
         try {
-            userService.logoutUser(authResponse.getId());
+            userService.logoutUser(logoutRequest.getId());
             return ResponseEntity.ok("Đăng xuất thành công");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -81,6 +81,18 @@ public class UserController {
 
         public void setFullName(String fullName) {
             this.fullName = fullName;
+        }
+    }
+
+    static class LogoutRequest {
+        private Long id;
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
         }
     }
 }
