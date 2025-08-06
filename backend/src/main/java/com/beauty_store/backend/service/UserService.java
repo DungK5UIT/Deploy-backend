@@ -1,16 +1,17 @@
 package com.beauty_store.backend.service;
 
-import com.beauty_store.backend.dto.LoginRequest;
-import com.beauty_store.backend.dto.UserDTO;
-import com.beauty_store.backend.model.User;
-import com.beauty_store.backend.repository.UserRepository;
-import com.beauty_store.backend.response.AuthResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.beauty_store.backend.dto.LoginRequest;
+import com.beauty_store.backend.dto.UserDTO;
+import com.beauty_store.backend.model.User;
+import com.beauty_store.backend.repository.UserRepository;
+import com.beauty_store.backend.response.AuthResponse;
 
 @Service
 public class UserService {
@@ -24,7 +25,7 @@ public class UserService {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private JwtService jwtService; // Giả định có JwtService
+    private JwtService jwtService;
 
     @Transactional
     public AuthResponse registerUser(UserDTO userDTO) {
@@ -50,7 +51,7 @@ public class UserService {
         User savedUser = userRepository.save(newUser);
         String token = jwtService.generateToken(savedUser);
         logger.info("User registered successfully: {}", savedUser.getEmail());
-        return new AuthResponse(savedUser.getId(), savedUser.getEmail(), savedUser.getFullName(), token);
+        return new AuthResponse(savedUser.getId(), savedUser.getEmail(), savedUser.getFullName(), savedUser.getRole(), token);
     }
 
     @Transactional
@@ -64,7 +65,7 @@ public class UserService {
 
         String token = jwtService.generateToken(user);
         logger.info("User logged in successfully: {}", user.getEmail());
-        return new AuthResponse(user.getId(), user.getEmail(), user.getFullName(), token);
+        return new AuthResponse(user.getId(), user.getEmail(), user.getFullName(), user.getRole(), token);
     }
 
     @Transactional
