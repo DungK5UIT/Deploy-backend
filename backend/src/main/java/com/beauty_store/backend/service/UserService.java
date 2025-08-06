@@ -47,6 +47,7 @@ public class UserService {
         newUser.setEmail(userDTO.getEmail());
         newUser.setPassword(hashedPassword);
         newUser.setRole("USER");
+        newUser.setIsOnline(false); // Đảm bảo is_online = false khi đăng ký
 
         User savedUser = userRepository.save(newUser);
         String token = jwtService.generateToken(savedUser);
@@ -59,9 +60,18 @@ public class UserService {
         User user = userRepository.findByEmail(loginRequest.getEmail())
                 .orElseThrow(() -> new IllegalArgumentException("Email hoặc mật khẩu không đúng."));
 
+        // Kiểm tra trạng thái is_online
+        if (user.isOnline()) {
+            throw new IllegalArgumentException("Tài khoản đang được đăng nhập ở nơi khác.");
+        }
+
         if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
             throw new IllegalArgumentException("Email hoặc mật khẩu không đúng.");
         }
+
+        // Cập nhật is_online = true
+        user.setIsOnline(true);
+        userRepository.save(user);
 
         String token = jwtService.generateToken(user);
         logger.info("User logged in successfully: {}", user.getEmail());
@@ -72,6 +82,11 @@ public class UserService {
     public void logoutUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy người dùng với ID: " + userId));
+        
+        // Cập nhật is_online = false
+        user.setIsOnline(false);
+        userRepository.save(user);
+        
         logger.info("User logged out: {}", user.getEmail());
         // Nếu cần blacklist token, thêm logic ở đây
     }

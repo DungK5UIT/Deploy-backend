@@ -1,6 +1,12 @@
 package com.beauty_store.backend.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -27,10 +33,19 @@ public class User {
     @Column(name = "role", nullable = false)
     private String role = "USER";
 
+    @Column(name = "is_online", nullable = false)
+    private boolean isOnline = false; // Thêm cột is_online, mặc định là false
+
     public User(String fullName, String email, String password, String role) {
         this.fullName = fullName;
         this.email = email;
         this.password = password;
         this.role = role;
+        this.isOnline = false; // Khởi tạo is_online là false
+    }
+
+    // Thêm setter thủ công để đảm bảo tương thích nếu Lombok không hoạt động
+    public void setIsOnline(boolean isOnline) {
+        this.isOnline = isOnline;
     }
 }
