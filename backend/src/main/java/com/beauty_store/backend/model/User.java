@@ -1,17 +1,14 @@
 package com.beauty_store.backend.model;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "users")
-@Data // Tự động tạo getters, setters, toString, equals, hashCode
+@Table(name = "users", indexes = {
+    @Index(name = "idx_email", columnList = "email")
+})
+@Data
 @NoArgsConstructor
 public class User {
     @Id
@@ -27,17 +24,13 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    @Column(name = "remember_me", nullable = false)
-    private boolean rememberMe;
+    @Column(name = "role", nullable = false)
+    private String role = "USER";
 
-    @Column(name = "is_online", nullable = false)
-    private boolean isOnline = false;
-
-    public User(String fullName, String email, String password, boolean rememberMe) {
+    public User(String fullName, String email, String password, String role) {
         this.fullName = fullName;
         this.email = email;
         this.password = password;
-        this.rememberMe = rememberMe;
-        this.isOnline = false;
+        this.role = role;
     }
 }
