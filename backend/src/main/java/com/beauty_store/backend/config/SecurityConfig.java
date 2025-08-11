@@ -1,6 +1,7 @@
 package com.beauty_store.backend.config;
 
 import java.util.Arrays;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -38,8 +39,11 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/products/list").permitAll()
+                .requestMatchers("/api/payments/vnpay/callback").permitAll()
                 .requestMatchers("/api/products/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/cart/**").hasRole("USER")
+                .requestMatchers("/api/orders/**").hasRole("USER")
+                .requestMatchers("/api/payments/**").hasRole("USER")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
