@@ -24,7 +24,7 @@ import com.beauty_store.backend.service.VNPayService;
 import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
-@RequestMapping("/api/payments")
+@RequestMapping("/api/pay")
 public class PaymentController {
 
     private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);
