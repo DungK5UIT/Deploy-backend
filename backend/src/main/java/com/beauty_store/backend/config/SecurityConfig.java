@@ -43,7 +43,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/products/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/cart/**").hasRole("USER")
                 .requestMatchers("/api/orders/**").hasRole("USER")
-                .requestMatchers("/api/payments/**").hasRole("USER")
+                .requestMatchers("/api/pay/**").hasRole("USER")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
