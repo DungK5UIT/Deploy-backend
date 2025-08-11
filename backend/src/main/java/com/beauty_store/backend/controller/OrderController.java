@@ -17,6 +17,9 @@ import com.beauty_store.backend.service.OrderService;
 import com.beauty_store.backend.service.VNPayService;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -33,7 +36,7 @@ public class OrderController {
     @PostMapping("/create")
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<?> createOrder(
-            @RequestBody OrderRequest orderRequest,
+            @Valid @RequestBody OrderRequest orderRequest,
             HttpServletRequest request) {
         try {
             logger.info("Creating order for user: {}", orderRequest.getUserId());
@@ -44,7 +47,7 @@ public class OrderController {
                     orderRequest.getNote()
             );
 
-            if ("VNPAY".equals(orderRequest.getPaymentMethod())) {
+            if ("VNPAY".equalsIgnoreCase(orderRequest.getPaymentMethod())) {
                 String ipAddress = request.getRemoteAddr();
                 String paymentUrl = vnPayService.createPaymentUrl(order, ipAddress);
                 return ResponseEntity.ok(new PaymentResponse(order.getId(), paymentUrl));
@@ -56,7 +59,7 @@ public class OrderController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ErrorResponse(e.getMessage(), HttpStatus.BAD_REQUEST.value()));
         } catch (Exception e) {
-            logger.error("Error creating order: {}", e.getMessage());
+            logger.error("Unexpected error creating order: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ErrorResponse("Lỗi hệ thống: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
         }
@@ -64,12 +67,18 @@ public class OrderController {
 }
 
 class OrderRequest {
+    @NotNull(message = "User ID is required")
     private Long userId;
+
+    @NotBlank(message = "Payment method is required")
     private String paymentMethod;
+
+    @NotBlank(message = "Shipping address is required")
     private String shippingAddress;
+
     private String note;
 
-    // Getters and Setters
+    // Getters and setters
     public Long getUserId() {
         return userId;
     }

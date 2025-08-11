@@ -80,7 +80,6 @@ public class VNPayService {
         String paymentUrl = vnPayProperties.getPaymentUrl() + "?" + queryString + "&vnp_SecureHash=" + secureHash;
         logger.info("Generated VNPay payment URL: {}", paymentUrl);
 
-        // Save payment record
         Payment payment = new Payment();
         payment.setOrderId(order.getId());
         payment.setAmount(order.getTotalAmount());
@@ -111,10 +110,14 @@ public class VNPayService {
         Order order = orderRepository.findById(Long.parseLong(orderId))
                 .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
 
+        if (!"PENDING".equals(order.getStatus())) {
+            logger.warn("Order {} is not in PENDING status, skipping callback processing", orderId);
+            return;
+        }
+
         Payment payment = paymentRepository.findByOrderIdAndTransactionId(Long.parseLong(orderId), orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Payment not found for order: " + orderId));
 
-        // Convert Map<String,String> to Map<String,Object>
         Map<String, Object> responseData = new HashMap<>();
         params.forEach(responseData::put);
 
@@ -167,7 +170,7 @@ public class VNPayService {
             return hexString.toString();
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             logger.error("Error generating secure hash: {}", e.getMessage());
-            throw new RuntimeException("Failed to generate secure hash", e);
+            throw new IllegalStateException("Failed to generate secure hash: " + e.getMessage(), e);
         }
     }
 }
