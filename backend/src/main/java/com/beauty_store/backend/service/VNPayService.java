@@ -2,6 +2,7 @@ package com.beauty_store.backend.service;
 
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -58,7 +59,11 @@ public class VNPayService {
         BigDecimal amount = order.getTotalAmount().multiply(new BigDecimal("100"));
         if (amount.scale() > 0) {
             logger.warn("Amount {} has decimal places, rounding to integer", amount);
-            amount = amount.setScale(0, BigDecimal.ROUND_DOWN);
+            amount = amount.setScale(0, RoundingMode.DOWN);
+        }
+        if (amount.longValue() % 100 != 0) {
+            logger.error("vnp_Amount {} is not a multiple of 100", amount.longValue());
+            throw new IllegalArgumentException("vnp_Amount must be a multiple of 100");
         }
         String vnp_Amount = String.valueOf(amount.longValue());
         logger.info("vnp_Amount: {}", vnp_Amount);
@@ -69,6 +74,7 @@ public class VNPayService {
         String vnp_OrderInfo = "Thanh toan don hang " + order.getId();
         String vnp_OrderType = "billpayment";
         String vnp_Locale = "vn";
+        String vnp_CurrCode = "VND";
         String vnp_IpAddr = ipAddress;
 
         Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
@@ -83,15 +89,18 @@ public class VNPayService {
         vnp_Params.put("vnp_Command", vnp_Command);
         vnp_Params.put("vnp_TmnCode", vnPayProperties.getTmnCode());
         vnp_Params.put("vnp_Amount", vnp_Amount);
-        vnp_Params.put("vnp_CurrCode", "VND");
+        vnp_Params.put("vnp_CurrCode", vnp_CurrCode);
         vnp_Params.put("vnp_TxnRef", vnp_TxnRef);
-        vnp_Params.put("vnp_OrderInfo", vnp_OrderInfo);
+        vnp_Params.put("vnp_OrderInfo", URLEncoder.encode(vnp_OrderInfo, StandardCharsets.UTF_8.toString()));
         vnp_Params.put("vnp_OrderType", vnp_OrderType);
         vnp_Params.put("vnp_Locale", vnp_Locale);
         vnp_Params.put("vnp_ReturnUrl", vnPayProperties.getReturnUrl());
         vnp_Params.put("vnp_IpAddr", vnp_IpAddr);
         vnp_Params.put("vnp_CreateDate", vnp_CreateDate);
         vnp_Params.put("vnp_ExpireDate", vnp_ExpireDate);
+
+        // Log all parameters
+        vnp_Params.forEach((key, value) -> logger.info("VNPay param: {} = {}", key, value));
 
         String queryString = buildQueryString(vnp_Params);
         logger.info("Query string: {}", queryString);
@@ -101,6 +110,7 @@ public class VNPayService {
         String paymentUrl = vnPayProperties.getPaymentUrl() + "?" + queryString + "&vnp_SecureHash=" + secureHash;
         logger.info("Generated VNPay payment URL: {}", paymentUrl);
 
+        // Save payment record
         Payment payment = new Payment();
         payment.setOrderId(order.getId());
         payment.setAmount(order.getTotalAmount());
@@ -114,51 +124,48 @@ public class VNPayService {
     }
 
     public boolean verifyPaymentResponse(Map<String, String> params) throws UnsupportedEncodingException {
-        String vnp_SecureHash = params.get("vnp_SecureHash");
-        params.remove("vnp_SecureHash");
-
         String queryString = buildQueryString(new TreeMap<>(params));
         String calculatedHash = generateSecureHash(queryString);
 
-        return vnp_SecureHash != null && vnp_SecureHash.equals(calculatedHash);
+        logger.info("Verifying payment response: vnp_SecureHash={}, calculatedHash={}", params.get("vnp_SecureHash"), calculatedHash);
+        return params.get("vnp_SecureHash") != null && params.get("vnp_SecureHash").equals(calculatedHash);
     }
 
     public void processPaymentCallback(Map<String, String> params) {
-        String orderId = params.get("vnp_TxnRef");
-        String responseCode = params.get("vnp_ResponseCode");
-        String transactionId = params.get("vnp_TransactionNo");
+        logger.info("Processing VNPay callback: vnp_TxnRef={}, vnp_ResponseCode={}, vnp_TransactionNo={}", 
+            params.get("vnp_TxnRef"), params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
 
-        Order order = orderRepository.findById(Long.parseLong(orderId))
-                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
+        Order order = orderRepository.findById(Long.parseLong(params.get("vnp_TxnRef")))
+                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + params.get("vnp_TxnRef")));
 
         if (!"PENDING".equals(order.getStatus())) {
-            logger.warn("Order {} is not in PENDING status, skipping callback processing", orderId);
+            logger.warn("Order {} is not in PENDING status, skipping callback processing", params.get("vnp_TxnRef"));
             return;
         }
 
-        Payment payment = paymentRepository.findByOrderIdAndTransactionId(Long.parseLong(orderId), orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Payment not found for order: " + orderId));
+        Payment payment = paymentRepository.findByOrderIdAndTransactionId(Long.parseLong(params.get("vnp_TxnRef")), params.get("vnp_TxnRef"))
+                .orElseThrow(() -> new IllegalArgumentException("Payment not found for order: " + params.get("vnp_TxnRef")));
 
         Map<String, Object> responseData = new HashMap<>();
         params.forEach(responseData::put);
 
-        if ("00".equals(responseCode)) {
+        if ("00".equals(params.get("vnp_ResponseCode"))) {
             order.setStatus("PAID");
             payment.setStatus("SUCCESS");
             payment.setPaidAt(LocalDateTime.now());
-            payment.setResponseCode(responseCode);
-            payment.setTransactionId(transactionId);
+            payment.setResponseCode(params.get("vnp_ResponseCode"));
+            payment.setTransactionId(params.get("vnp_TransactionNo"));
             payment.setResponseData(responseData);
         } else {
             order.setStatus("FAILED");
             payment.setStatus("FAILED");
-            payment.setResponseCode(responseCode);
+            payment.setResponseCode(params.get("vnp_ResponseCode"));
             payment.setResponseData(responseData);
         }
 
         orderRepository.save(order);
         paymentRepository.save(payment);
-        logger.info("Processed VNPay callback for order {}: {}", orderId, payment.getStatus());
+        logger.info("Processed VNPay callback for order {}: {}", params.get("vnp_TxnRef"), payment.getStatus());
     }
 
     private String buildQueryString(Map<String, String> params) throws UnsupportedEncodingException {
