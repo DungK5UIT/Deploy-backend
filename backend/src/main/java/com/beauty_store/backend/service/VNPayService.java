@@ -1,6 +1,7 @@
 package com.beauty_store.backend.service;
 
 import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -43,12 +44,18 @@ public class VNPayService {
     private PaymentRepository paymentRepository;
 
     public String createPaymentUrl(Order order, String ipAddress) throws UnsupportedEncodingException {
+        if (order.getTotalAmount() == null || order.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            logger.error("Invalid order amount: {}", order.getTotalAmount());
+            throw new IllegalArgumentException("Order amount must be positive and non-null");
+        }
+
         String vnp_Version = "2.1.0";
         String vnp_Command = "pay";
         String vnp_TxnRef = String.valueOf(order.getId());
-        String vnp_OrderInfo = "Thanh toan don hang " + order.getId();
+        String vnp_OrderInfo = URLEncoder.encode("Thanh toan don hang " + order.getId(), StandardCharsets.UTF_8.toString());
         String vnp_OrderType = "billpayment";
-        String vnp_Amount = String.valueOf(order.getTotalAmount().multiply(new java.math.BigDecimal(100)).intValue());
+        String vnp_Amount = String.valueOf(order.getTotalAmount().multiply(new java.math.BigDecimal(100)).longValue());
+        logger.info("vnp_Amount: {}", vnp_Amount);
         String vnp_Locale = "vn";
         String vnp_IpAddr = ipAddress;
 
@@ -56,7 +63,7 @@ public class VNPayService {
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
         String vnp_CreateDate = formatter.format(cld.getTime());
 
-        cld.add(Calendar.MINUTE, 15);
+        cld.add(Calendar.MINUTE, 30); // Tăng timeout lên 30 phút
         String vnp_ExpireDate = formatter.format(cld.getTime());
 
         Map<String, String> vnp_Params = new TreeMap<>();
@@ -75,7 +82,9 @@ public class VNPayService {
         vnp_Params.put("vnp_ExpireDate", vnp_ExpireDate);
 
         String queryString = buildQueryString(vnp_Params);
+        logger.info("Query string: {}", queryString);
         String secureHash = generateSecureHash(queryString);
+        logger.info("Secure hash: {}", secureHash);
 
         String paymentUrl = vnPayProperties.getPaymentUrl() + "?" + queryString + "&vnp_SecureHash=" + secureHash;
         logger.info("Generated VNPay payment URL: {}", paymentUrl);
