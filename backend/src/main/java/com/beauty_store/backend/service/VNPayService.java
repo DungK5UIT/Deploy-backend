@@ -2,7 +2,6 @@ package com.beauty_store.backend.service;
 
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -11,10 +10,10 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.Calendar;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -32,7 +31,6 @@ import com.beauty_store.backend.repository.PaymentRepository;
 
 @Service
 public class VNPayService {
-
     private static final Logger logger = LoggerFactory.getLogger(VNPayService.class);
 
     @Autowired
@@ -45,158 +43,141 @@ public class VNPayService {
     private PaymentRepository paymentRepository;
 
     public String createPaymentUrl(Order order, String ipAddress) throws UnsupportedEncodingException {
-        // Validate order and total_amount
         if (order == null || order.getId() == null) {
-            logger.error("Invalid order: null or missing ID");
             throw new IllegalArgumentException("Order cannot be null and must have an ID");
         }
         if (order.getTotalAmount() == null || order.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            logger.error("Invalid order amount: {}", order.getTotalAmount());
             throw new IllegalArgumentException("Order amount must be positive and non-null");
         }
 
-        // Calculate vnp_Amount
-        BigDecimal amount = order.getTotalAmount().multiply(new BigDecimal("100"));
-        if (amount.scale() > 0) {
-            logger.warn("Amount {} has decimal places, rounding to integer", amount);
-            amount = amount.setScale(0, RoundingMode.DOWN);
-        }
-        if (amount.longValue() % 100 != 0) {
-            logger.error("vnp_Amount {} is not a multiple of 100", amount.longValue());
-            throw new IllegalArgumentException("vnp_Amount must be a multiple of 100");
-        }
-        String vnp_Amount = String.valueOf(amount.longValue());
-        logger.info("vnp_Amount: {}", vnp_Amount);
+        long amount = order.getTotalAmount().multiply(new BigDecimal("100")).longValue();
+        
+        Map<String, String> vnp_Params = new TreeMap<>();
+        vnp_Params.put("vnp_Version", "2.1.0");
+        vnp_Params.put("vnp_Command", "pay");
+        vnp_Params.put("vnp_TmnCode", vnPayProperties.getTmnCode());
+        vnp_Params.put("vnp_Amount", String.valueOf(amount));
+        vnp_Params.put("vnp_CurrCode", "VND");
+        vnp_Params.put("vnp_TxnRef", String.valueOf(order.getId()));
+        vnp_Params.put("vnp_OrderInfo", "Thanh toan don hang " + order.getId());
+        vnp_Params.put("vnp_OrderType", "250000"); // Mã loại hàng hóa, bạn có thể thay đổi
+        vnp_Params.put("vnp_Locale", "vn");
+        vnp_Params.put("vnp_ReturnUrl", vnPayProperties.getReturnUrl());
+        vnp_Params.put("vnp_IpAddr", ipAddress);
 
-        String vnp_Version = "2.1.0";
-        String vnp_Command = "pay";
-        String vnp_TxnRef = String.valueOf(order.getId());
-        String vnp_OrderInfo = "Thanh toan don hang " + order.getId();
-        String vnp_OrderType = "billpayment";
-        String vnp_Locale = "vn";
-        String vnp_CurrCode = "VND";
-        String vnp_IpAddr = ipAddress;
-
-        // Ensure GMT+7 timezone
+        // Đảm bảo múi giờ GMT+7 cho VNPay
         Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
-        formatter.setTimeZone(TimeZone.getTimeZone("Etc/GMT+7"));
         String vnp_CreateDate = formatter.format(cld.getTime());
-        logger.info("vnp_CreateDate: {}", vnp_CreateDate);
-
-        cld.add(Calendar.MINUTE, 60); // Timeout 60 phút
-        String vnp_ExpireDate = formatter.format(cld.getTime());
-        logger.info("vnp_ExpireDate: {}", vnp_ExpireDate);
-
-        Map<String, String> vnp_Params = new TreeMap<>();
-        vnp_Params.put("vnp_Version", vnp_Version);
-        vnp_Params.put("vnp_Command", vnp_Command);
-        vnp_Params.put("vnp_TmnCode", vnPayProperties.getTmnCode());
-        vnp_Params.put("vnp_Amount", vnp_Amount);
-        vnp_Params.put("vnp_CurrCode", vnp_CurrCode);
-        vnp_Params.put("vnp_TxnRef", vnp_TxnRef);
-        vnp_Params.put("vnp_OrderInfo", URLEncoder.encode(vnp_OrderInfo, StandardCharsets.UTF_8.toString()));
-        vnp_Params.put("vnp_OrderType", vnp_OrderType);
-        vnp_Params.put("vnp_Locale", vnp_Locale);
-        vnp_Params.put("vnp_ReturnUrl", vnPayProperties.getReturnUrl());
-        vnp_Params.put("vnp_IpAddr", vnp_IpAddr);
         vnp_Params.put("vnp_CreateDate", vnp_CreateDate);
+
+        cld.add(Calendar.MINUTE, 15); // Timeout 15 phút
+        String vnp_ExpireDate = formatter.format(cld.getTime());
         vnp_Params.put("vnp_ExpireDate", vnp_ExpireDate);
-
-        // Log all parameters
-        vnp_Params.forEach((key, value) -> logger.info("VNPay param: {} = {}", key, value));
-
-        String queryString = buildQueryString(vnp_Params);
-        logger.info("Query string: {}", queryString);
+        
+        // SỬA LỖI 1: Build query string đúng cách (chỉ encode value)
+        String queryString = vnp_Params.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && !entry.getValue().isEmpty())
+                .map(entry -> {
+                    try {
+                        return entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.toString());
+                    } catch (UnsupportedEncodingException e) {
+                        // This should never happen with UTF-8
+                        throw new RuntimeException(e);
+                    }
+                })
+                .collect(Collectors.joining("&"));
+        
         String secureHash = generateSecureHash(queryString);
-        logger.info("Secure hash: {}", secureHash);
-
         String paymentUrl = vnPayProperties.getPaymentUrl() + "?" + queryString + "&vnp_SecureHash=" + secureHash;
+        
         logger.info("Generated VNPay payment URL: {}", paymentUrl);
-
+        
         // Save payment record
         Payment payment = new Payment();
         payment.setOrderId(order.getId());
         payment.setAmount(order.getTotalAmount());
         payment.setPaymentMethod("VNPAY");
         payment.setStatus("PENDING");
-        payment.setTransactionId(vnp_TxnRef);
+        // Lưu vnp_TxnRef để đối chiếu khi callback
+        payment.setTransactionId(String.valueOf(order.getId()));
         payment.setCreatedAt(LocalDateTime.now());
         paymentRepository.save(payment);
 
         return paymentUrl;
     }
 
-    public boolean verifyPaymentResponse(Map<String, String> params) throws UnsupportedEncodingException {
-        String queryString = buildQueryString(new TreeMap<>(params));
-        String calculatedHash = generateSecureHash(queryString);
+    public boolean verifyPaymentResponse(Map<String, String> params) {
+        // SỬA LỖI 2: Loại bỏ vnp_SecureHash và vnp_SecureHashType trước khi hash
+        String secureHash = params.remove("vnp_SecureHash");
+        params.remove("vnp_SecureHashType"); // Nếu có
+        
+        // Sắp xếp lại các tham số theo thứ tự alphabet và build query string
+        Map<String, String> sortedParams = new TreeMap<>(params);
+        String queryString = sortedParams.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && !entry.getValue().isEmpty())
+                .map(entry -> {
+                    try {
+                        return entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.toString());
+                    } catch (UnsupportedEncodingException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .collect(Collectors.joining("&"));
 
-        logger.info("Verifying payment response: vnp_SecureHash={}, calculatedHash={}", params.get("vnp_SecureHash"), calculatedHash);
-        return params.get("vnp_SecureHash") != null && params.get("vnp_SecureHash").equals(calculatedHash);
+        String calculatedHash = generateSecureHash(queryString);
+        logger.info("Verifying payment response: vnp_SecureHash={}, calculatedHash={}", secureHash, calculatedHash);
+        return secureHash.equals(calculatedHash);
     }
 
     public void processPaymentCallback(Map<String, String> params) {
+        String orderIdStr = params.get("vnp_TxnRef");
+        String responseCode = params.get("vnp_ResponseCode");
+        String transactionNo = params.get("vnp_TransactionNo"); // Mã giao dịch của VNPay
+
         logger.info("Processing VNPay callback: vnp_TxnRef={}, vnp_ResponseCode={}, vnp_TransactionNo={}", 
-            params.get("vnp_TxnRef"), params.get("vnp_ResponseCode"), params.get("vnp_TransactionNo"));
+            orderIdStr, responseCode, transactionNo);
 
-        Order order = orderRepository.findById(Long.parseLong(params.get("vnp_TxnRef")))
-                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + params.get("vnp_TxnRef")));
+        Order order = orderRepository.findById(Long.parseLong(orderIdStr))
+                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderIdStr));
 
+        // Chỉ xử lý nếu đơn hàng đang ở trạng thái PENDING
         if (!"PENDING".equals(order.getStatus())) {
-            logger.warn("Order {} is not in PENDING status, skipping callback processing", params.get("vnp_TxnRef"));
+            logger.warn("Order {} is not in PENDING status, skipping callback processing. Current status: {}", orderIdStr, order.getStatus());
             return;
         }
 
-        Payment payment = paymentRepository.findByOrderIdAndTransactionId(Long.parseLong(params.get("vnp_TxnRef")), params.get("vnp_TxnRef"))
-                .orElseThrow(() -> new IllegalArgumentException("Payment not found for order: " + params.get("vnp_TxnRef")));
-
-        Map<String, Object> responseData = new HashMap<>();
-        params.forEach(responseData::put);
-
-        String responseCode = params.get("vnp_ResponseCode");
+        // Tìm payment record bằng orderId và transactionId (chính là orderId lúc tạo)
+        Payment payment = paymentRepository.findByOrderIdAndTransactionId(order.getId(), orderIdStr)
+                .orElseThrow(() -> new IllegalArgumentException("Payment record not found for order: " + orderIdStr));
+        
+        payment.setResponseCode(responseCode);
+        payment.setResponseData(new HashMap<>(params)); // Lưu toàn bộ data trả về từ VNPay
+        
         if ("00".equals(responseCode)) {
+            logger.info("Payment successful for order {}", orderIdStr);
             order.setStatus("PAID");
             payment.setStatus("SUCCESS");
             payment.setPaidAt(LocalDateTime.now());
-            payment.setResponseCode(responseCode);
-            payment.setTransactionId(params.get("vnp_TransactionNo"));
-            payment.setResponseData(responseData);
+            // Cập nhật transactionId bằng mã giao dịch thật của VNPay
+            payment.setTransactionId(transactionNo);
         } else {
+            logger.warn("Payment failed for order {}. Response code: {}", orderIdStr, responseCode);
             order.setStatus("FAILED");
             payment.setStatus("FAILED");
-            payment.setResponseCode(responseCode);
-            payment.setResponseData(responseData);
-            if (responseCode == null || responseCode.isEmpty()) {
-                payment.setResponseData(Map.of("error", "Transaction timeout or cancelled"));
-            }
         }
-
+        
         orderRepository.save(order);
         paymentRepository.save(payment);
-        logger.info("Processed VNPay callback for order {}: {}", params.get("vnp_TxnRef"), payment.getStatus());
+        logger.info("Processed VNPay callback for order {}. New status: {}", orderIdStr, payment.getStatus());
     }
 
-    private String buildQueryString(Map<String, String> params) throws UnsupportedEncodingException {
-        StringBuilder query = new StringBuilder();
-        Iterator<Map.Entry<String, String>> itr = params.entrySet().iterator();
-        while (itr.hasNext()) {
-            Map.Entry<String, String> entry = itr.next();
-            query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8.toString()));
-            query.append("=");
-            query.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.toString()));
-            if (itr.hasNext()) {
-                query.append("&");
-            }
-        }
-        return query.toString();
-    }
-
-    private String generateSecureHash(String queryString) {
+    private String generateSecureHash(String data) {
         try {
-            Mac sha256_HMAC = Mac.getInstance("HmacSHA512");
+            Mac sha512_HMAC = Mac.getInstance("HmacSHA512");
             SecretKeySpec secret_key = new SecretKeySpec(vnPayProperties.getHashSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA512");
-            sha256_HMAC.init(secret_key);
-            byte[] hash = sha256_HMAC.doFinal(queryString.getBytes(StandardCharsets.UTF_8));
+            sha512_HMAC.init(secret_key);
+            byte[] hash = sha512_HMAC.doFinal(data.getBytes(StandardCharsets.UTF_8));
             StringBuilder hexString = new StringBuilder();
             for (byte b : hash) {
                 String hex = Integer.toHexString(0xff & b);
@@ -205,8 +186,8 @@ public class VNPayService {
             }
             return hexString.toString();
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            logger.error("Error generating secure hash: {}", e.getMessage());
-            throw new IllegalStateException("Failed to generate secure hash: " + e.getMessage(), e);
+            logger.error("Error generating secure hash: {}", e.getMessage(), e);
+            throw new IllegalStateException("Failed to generate secure hash", e);
         }
     }
 }
