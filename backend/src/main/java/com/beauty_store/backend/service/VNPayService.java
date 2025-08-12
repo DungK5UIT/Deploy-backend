@@ -44,18 +44,30 @@ public class VNPayService {
     private PaymentRepository paymentRepository;
 
     public String createPaymentUrl(Order order, String ipAddress) throws UnsupportedEncodingException {
+        // Validate order and total_amount
+        if (order == null || order.getId() == null) {
+            logger.error("Invalid order: null or missing ID");
+            throw new IllegalArgumentException("Order cannot be null and must have an ID");
+        }
         if (order.getTotalAmount() == null || order.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
             logger.error("Invalid order amount: {}", order.getTotalAmount());
             throw new IllegalArgumentException("Order amount must be positive and non-null");
         }
 
+        // Calculate vnp_Amount
+        BigDecimal amount = order.getTotalAmount().multiply(new BigDecimal("100"));
+        if (amount.scale() > 0) {
+            logger.warn("Amount {} has decimal places, rounding to integer", amount);
+            amount = amount.setScale(0, BigDecimal.ROUND_DOWN);
+        }
+        String vnp_Amount = String.valueOf(amount.longValue());
+        logger.info("vnp_Amount: {}", vnp_Amount);
+
         String vnp_Version = "2.1.0";
         String vnp_Command = "pay";
         String vnp_TxnRef = String.valueOf(order.getId());
-        String vnp_OrderInfo = URLEncoder.encode("Thanh toan don hang " + order.getId(), StandardCharsets.UTF_8.toString());
+        String vnp_OrderInfo = "Thanh toan don hang " + order.getId();
         String vnp_OrderType = "billpayment";
-        String vnp_Amount = String.valueOf(order.getTotalAmount().multiply(new java.math.BigDecimal(100)).longValue());
-        logger.info("vnp_Amount: {}", vnp_Amount);
         String vnp_Locale = "vn";
         String vnp_IpAddr = ipAddress;
 
@@ -63,7 +75,7 @@ public class VNPayService {
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
         String vnp_CreateDate = formatter.format(cld.getTime());
 
-        cld.add(Calendar.MINUTE, 30); // Tăng timeout lên 30 phút
+        cld.add(Calendar.MINUTE, 30); // Timeout 30 phút
         String vnp_ExpireDate = formatter.format(cld.getTime());
 
         Map<String, String> vnp_Params = new TreeMap<>();
@@ -108,7 +120,7 @@ public class VNPayService {
         String queryString = buildQueryString(new TreeMap<>(params));
         String calculatedHash = generateSecureHash(queryString);
 
-        return vnp_SecureHash.equals(calculatedHash);
+        return vnp_SecureHash != null && vnp_SecureHash.equals(calculatedHash);
     }
 
     public void processPaymentCallback(Map<String, String> params) {
@@ -154,9 +166,9 @@ public class VNPayService {
         Iterator<Map.Entry<String, String>> itr = params.entrySet().iterator();
         while (itr.hasNext()) {
             Map.Entry<String, String> entry = itr.next();
-            query.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
+            query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8.toString()));
             query.append("=");
-            query.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
+            query.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.toString()));
             if (itr.hasNext()) {
                 query.append("&");
             }
