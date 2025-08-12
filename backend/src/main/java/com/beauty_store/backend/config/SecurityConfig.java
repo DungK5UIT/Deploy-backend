@@ -39,11 +39,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/products/list").permitAll()
-                .requestMatchers("/api/payments/vnpay/callback").permitAll()
                 .requestMatchers("/api/products/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/cart/**").hasRole("USER")
-                .requestMatchers("/api/orders/**").hasRole("USER")
-                .requestMatchers("/api/pay/**").hasRole("USER")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
