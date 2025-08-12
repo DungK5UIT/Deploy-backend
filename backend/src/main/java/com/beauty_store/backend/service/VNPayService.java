@@ -77,12 +77,16 @@ public class VNPayService {
         String vnp_CurrCode = "VND";
         String vnp_IpAddr = ipAddress;
 
+        // Ensure GMT+7 timezone
         Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
+        formatter.setTimeZone(TimeZone.getTimeZone("Etc/GMT+7"));
         String vnp_CreateDate = formatter.format(cld.getTime());
+        logger.info("vnp_CreateDate: {}", vnp_CreateDate);
 
-        cld.add(Calendar.MINUTE, 30); // Timeout 30 phút
+        cld.add(Calendar.MINUTE, 60); // Timeout 60 phút
         String vnp_ExpireDate = formatter.format(cld.getTime());
+        logger.info("vnp_ExpireDate: {}", vnp_ExpireDate);
 
         Map<String, String> vnp_Params = new TreeMap<>();
         vnp_Params.put("vnp_Version", vnp_Version);
@@ -149,18 +153,22 @@ public class VNPayService {
         Map<String, Object> responseData = new HashMap<>();
         params.forEach(responseData::put);
 
-        if ("00".equals(params.get("vnp_ResponseCode"))) {
+        String responseCode = params.get("vnp_ResponseCode");
+        if ("00".equals(responseCode)) {
             order.setStatus("PAID");
             payment.setStatus("SUCCESS");
             payment.setPaidAt(LocalDateTime.now());
-            payment.setResponseCode(params.get("vnp_ResponseCode"));
+            payment.setResponseCode(responseCode);
             payment.setTransactionId(params.get("vnp_TransactionNo"));
             payment.setResponseData(responseData);
         } else {
             order.setStatus("FAILED");
             payment.setStatus("FAILED");
-            payment.setResponseCode(params.get("vnp_ResponseCode"));
+            payment.setResponseCode(responseCode);
             payment.setResponseData(responseData);
+            if (responseCode == null || responseCode.isEmpty()) {
+                payment.setResponseData(Map.of("error", "Transaction timeout or cancelled"));
+            }
         }
 
         orderRepository.save(order);
