@@ -1,115 +1,94 @@
 package com.beauty_store.backend.controller;
 
+import com.beauty_store.backend.config.VNPayConfig;
+import com.beauty_store.backend.util.VNPayUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-
-import com.beauty_store.backend.model.ErrorResponse;
-import com.beauty_store.backend.model.Order;
-import com.beauty_store.backend.repository.OrderRepository;
-import com.beauty_store.backend.service.VNPayService;
-
-import jakarta.servlet.http.HttpServletRequest;
-
 @RestController
-@RequestMapping("/api/pay")
+@RequestMapping("/api/payment")
 public class PaymentController {
 
-    private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);
-
     @Autowired
-    private VNPayService vnPayService;
+    private VNPayConfig vnPayConfig;
 
-    @Autowired
-    private OrderRepository orderRepository;
+    @PostMapping("/create")
+    public Map<String, String> createPayment(@RequestBody Map<String, Object> request) throws Exception {
+        Map<String, String> response = new HashMap<>();
+        String orderId = (String) request.get("orderId");
+        String amount = String.valueOf(request.get("amount"));
+        String orderInfo = (String) request.get("orderInfo");
+        String ipAddr = (String) request.get("ipAddr");
+        Map<String, String> shippingInfo = (Map<String, String>) request.get("shippingInfo");
 
-    @PostMapping("/vnpay/initiate")
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<?> initiateVNPayPayment(@RequestParam Long orderId, HttpServletRequest request) {
-        try {
-            logger.info("Initiating VNPay payment for order: {}", orderId);
-            Order order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
+        // Tạo tham số yêu cầu VNPay
+        Map<String, String> vnpParams = new HashMap<>();
+        vnpParams.put("vnp_Version", "2.1.0");
+        vnpParams.put("vnp_Command", "pay");
+        vnpParams.put("vnp_TmnCode", vnPayConfig.getTmnCode());
+        vnpParams.put("vnp_Amount", String.valueOf(Integer.parseInt(amount) * 100));
+        vnpParams.put("vnp_CurrCode", "VND");
+        vnpParams.put("vnp_TxnRef", orderId);
+        vnpParams.put("vnp_OrderInfo", orderInfo);
+        vnpParams.put("vnp_OrderType", "250000");
+        vnpParams.put("vnp_Locale", "vn");
+        vnpParams.put("vnp_ReturnUrl", vnPayConfig.getReturnUrl());
+        vnpParams.put("vnp_IpAddr", VNPayUtil.getIpAddress(ipAddr));
+        vnpParams.put("vnp_CreateDate", new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()));
+        vnpParams.put("vnp_ExpireDate", new SimpleDateFormat("yyyyMMddHHmmss").format(new Date(System.currentTimeMillis() + 15 * 60 * 1000)));
 
-            String currentUserId = SecurityContextHolder.getContext().getAuthentication().getName();
-            if (!order.getUserId().toString().equals(currentUserId)) {
-                logger.warn("User {} does not have permission to initiate payment for order {}", currentUserId, orderId);
-                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(new ErrorResponse("You do not have permission to initiate payment for this order", HttpStatus.FORBIDDEN.value()));
-            }
+        // Thêm thông tin giao hàng vào OrderInfo để lưu trữ
+        String shippingDetails = String.format("FullName: %s, Phone: %s, Email: %s, Address: %s, City: %s, District: %s",
+                shippingInfo.get("fullName"), shippingInfo.get("phone"), shippingInfo.get("email"),
+                shippingInfo.get("address"), shippingInfo.get("city"), shippingInfo.get("district"));
+        vnpParams.put("vnp_OrderInfo", orderInfo + " | " + shippingDetails);
 
-            if (!"PENDING".equals(order.getStatus())) {
-                logger.warn("Order {} is not in PENDING status, current status: {}", orderId, order.getStatus());
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(new ErrorResponse("Order is not in PENDING status", HttpStatus.BAD_REQUEST.value()));
-            }
+        // Tạo secure hash
+        String secureHash = VNPayUtil.hashAllFields(vnpParams, vnPayConfig.getHashSecret());
+        vnpParams.put("vnp_SecureHash", secureHash);
 
-            String ipAddress = request.getRemoteAddr();
-            String paymentUrl = vnPayService.createPaymentUrl(order, ipAddress);
-            return ResponseEntity.ok(new PaymentResponse(orderId, paymentUrl));
-        } catch (IllegalArgumentException e) {
-            logger.warn("Error initiating payment: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new ErrorResponse(e.getMessage(), HttpStatus.BAD_REQUEST.value()));
-        } catch (Exception e) {
-            logger.error("Error initiating payment: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponse("System error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
+        // Tạo URL thanh toán
+        StringBuilder paymentUrl = new StringBuilder(vnPayConfig.getPaymentUrl()).append("?");
+        for (Map.Entry<String, String> entry : vnpParams.entrySet()) {
+            paymentUrl.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                      .append("=")
+                      .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8))
+                      .append("&");
         }
+        paymentUrl.deleteCharAt(paymentUrl.length() - 1);
+
+        response.put("paymentUrl", paymentUrl.toString());
+        return response;
     }
 
-    @GetMapping("/vnpay/callback")
-    public ResponseEntity<?> handleVNPayCallback(@RequestParam Map<String, String> params) {
-        logger.info("Received VNPay callback with params: {}", params);
-        try {
-            if (!vnPayService.verifyPaymentResponse(params)) {
-                logger.warn("Invalid payment signature for params: {}", params);
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body(new ErrorResponse("Invalid payment signature", HttpStatus.BAD_REQUEST.value()));
+    @GetMapping("/return")
+    public Map<String, String> paymentReturn(@RequestParam Map<String, String> params) throws Exception {
+        Map<String, String> response = new HashMap<>();
+        String secureHash = params.remove("vnp_SecureHash");
+        String calculatedHash = VNPayUtil.hashAllFields(params, vnPayConfig.getHashSecret());
+
+        if (secureHash.equals(calculatedHash)) {
+            if ("00".equals(params.get("vnp_TransactionStatus"))) {
+                response.put("status", "success");
+                response.put("message", "Giao dịch thành công");
+                response.put("orderId", params.get("vnp_TxnRef"));
+                response.put("amount", params.get("vnp_Amount"));
+                response.put("transactionNo", params.get("vnp_TransactionNo"));
+                // TODO: Lưu thông tin đơn hàng vào database tại đây
+            } else {
+                response.put("status", "failed");
+                response.put("message", "Giao dịch thất bại");
             }
-
-            vnPayService.processPaymentCallback(params);
-            String orderId = params.get("vnp_TxnRef");
-            String responseCode = params.get("vnp_ResponseCode");
-            logger.info("Callback response code: {} for order: {}", responseCode, orderId);
-
-            Map<String, String> response = new HashMap<>();
-            response.put("orderId", orderId);
-            response.put("status", "00".equals(responseCode) ? "SUCCESS" : 
-                                   responseCode.equals("07") ? "INVALID_FORMAT" : 
-                                   responseCode.equals("11") ? "TIMEOUT" : "FAILED");
-            response.put("message", getVNPayErrorMessage(responseCode));
-            return ResponseEntity.ok(response);
-        } catch (IllegalArgumentException e) {
-            logger.warn("Error processing callback: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new ErrorResponse(e.getMessage(), HttpStatus.BAD_REQUEST.value()));
-        } catch (Exception e) {
-            logger.error("Error processing callback: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponse("System error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
+        } else {
+            response.put("status", "failed");
+            response.put("message", "Sai chữ ký, dữ liệu không hợp lệ");
         }
-    }
-
-    private String getVNPayErrorMessage(String responseCode) {
-        switch (responseCode) {
-            case "00": return "Giao dịch thành công";
-            case "07": return "Dữ liệu gửi sang không đúng định dạng";
-            case "11": return "Giao dịch đã quá thời gian chờ thanh toán";
-            case "24": return "Giao dịch bị hủy bởi người dùng";
-            default: return "Giao dịch thất bại: Mã lỗi " + responseCode;
-        }
+        return response;
     }
 }
