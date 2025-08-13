@@ -96,4 +96,7 @@ public class CartService {
         }
         cartItemRepository.deleteById(cartItemId);
     }
+    public void clearCart(Cart cart) {
+        cartItemRepository.deleteByCartId(cart.getId());
+    }
 }
