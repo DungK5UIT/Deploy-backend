@@ -1,73 +1,103 @@
 package com.beauty_store.backend.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.beauty_store.backend.model.Cart;
 import com.beauty_store.backend.model.CartItem;
 import com.beauty_store.backend.model.Order;
 import com.beauty_store.backend.model.OrderItem;
-import com.beauty_store.backend.model.User;
+import com.beauty_store.backend.repository.CartItemRepository;
+import com.beauty_store.backend.repository.OrderItemRepository;
 import com.beauty_store.backend.repository.OrderRepository;
 
 @Service
 public class OrderService {
 
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
+
     @Autowired
     private OrderRepository orderRepository;
 
     @Autowired
-    private CartService cartService;
+    private CartItemRepository cartItemRepository;
 
-    public Order createOrderFromCart(User user, String paymentMethod, Map<String, String> shippingInfo) {
-        Cart cart = cartService.getCart(user.getId());
-        if (cart == null) {
-            throw new RuntimeException("Cart not found");
+    @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Transactional
+    public Order createOrder(Long userId, String paymentMethod, String shippingAddress, String note) {
+        // Validate inputs
+        if (userId == null) {
+            logger.error("User ID is null");
+            throw new IllegalArgumentException("User ID is required");
+        }
+        if (!List.of("VNPAY", "CASH_ON_DELIVERY", "MOMO", "OTHER").contains(paymentMethod.toUpperCase())) {
+            logger.error("Invalid payment method: {}", paymentMethod);
+            throw new IllegalArgumentException("Invalid payment method: " + paymentMethod);
+        }
+        if (shippingAddress == null || shippingAddress.trim().isEmpty()) {
+            logger.error("Shipping address is empty");
+            throw new IllegalArgumentException("Shipping address is required");
         }
 
-        List<CartItem> cartItems = cartService.getCartItems(cart.getId());
+        // Lấy cart items của user
+        List<CartItem> cartItems = cartItemRepository.findByCartUserId(userId);
         if (cartItems.isEmpty()) {
-            throw new RuntimeException("Cart is empty");
+            logger.error("Cart is empty for user: {}", userId);
+            throw new IllegalArgumentException("Cart is empty");
         }
 
-        double totalAmount = cartItems.stream()
-                .mapToDouble(item -> item.getPrice() * item.getQuantity())
-                .sum();
+        // Tính total_amount từ cart items
+        BigDecimal totalAmount = cartItems.stream()
+                .map(item -> {
+                    if (item.getPrice() == null || item.getQuantity() <= 0) {
+                        logger.error("Invalid cart item: price={}, quantity={}", item.getPrice(), item.getQuantity());
+                        throw new IllegalArgumentException("Invalid cart item: price or quantity is invalid");
+                    }
+                    return item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            logger.error("Total amount is invalid: {}", totalAmount);
+            throw new IllegalArgumentException("Total amount must be positive");
+        }
+
+        // Tạo order
         Order order = new Order();
-        order.setUser(user);
+        order.setUserId(userId);
         order.setTotalAmount(totalAmount);
+        order.setPaymentMethod(paymentMethod.toUpperCase());
+        order.setShippingAddress(shippingAddress);
+        order.setNote(note != null ? note : "Không có ghi chú");
         order.setStatus("PENDING");
         order.setCreatedAt(LocalDateTime.now());
-        order.setPaymentMethod(paymentMethod);
-        order.setFullName(shippingInfo.get("fullName"));
-        order.setPhone(shippingInfo.get("phone"));
-        order.setEmail(shippingInfo.get("email"));
-        order.setAddress(shippingInfo.get("address"));
-        order.setCity(shippingInfo.get("city"));
-        order.setDistrict(shippingInfo.get("district"));
+        order.setUpdatedAt(LocalDateTime.now());
 
-        List<OrderItem> orderItems = new ArrayList<>();
+        // Lưu order
+        order = orderRepository.save(order);
+        logger.info("Created order with ID: {}, total_amount: {}", order.getId(), totalAmount);
+
+        // Tạo order items từ cart items
         for (CartItem cartItem : cartItems) {
             OrderItem orderItem = new OrderItem();
-            orderItem.setOrder(order);
-            orderItem.setProduct(cartItem.getProduct());
+            orderItem.setOrderId(order.getId());
+            orderItem.setProductId(cartItem.getId());
             orderItem.setQuantity(cartItem.getQuantity());
             orderItem.setPrice(cartItem.getPrice());
-            orderItems.add(orderItem);
+            orderItemRepository.save(orderItem);
         }
-        order.setOrderItems(orderItems);
 
-        Order savedOrder = orderRepository.save(order);
+        // Xóa cart items sau khi tạo order
+        cartItemRepository.deleteByCartUserId(userId);
 
-        // Clear cart after creating order
-        cartService.clearCart(cart);
-
-        return savedOrder;
+        return order;
     }
 }

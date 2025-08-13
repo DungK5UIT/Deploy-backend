@@ -1,133 +1,115 @@
 package com.beauty_store.backend.controller;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.TimeZone;
-import java.util.TreeMap;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.beauty_store.backend.model.ErrorResponse;
 import com.beauty_store.backend.model.Order;
-import com.beauty_store.backend.model.User;
-import com.beauty_store.backend.service.OrderService;
+import com.beauty_store.backend.repository.OrderRepository;
+import com.beauty_store.backend.service.VNPayService;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
-@RequestMapping("/api/payment")
+@RequestMapping("/api/pay")
 public class PaymentController {
 
-    @Value("${vnpay.payment-url}")
-    private String vnpPayUrl;
-
-    @Value("${vnpay.tmn-code}")
-    private String vnpTmnCode;
-
-    @Value("${vnpay.hash-secret}")
-    private String vnpHashSecret;
-
-    @Value("${vnpay.return-url}")
-    private String vnpReturnUrl;
-
-    @Value("${vnpay.version}")
-    private String vnpVersion;
-
-    @Value("${vnpay.command}")
-    private String vnpCommand;
-
-    @Value("${vnpay.curr-code}")
-    private String vnpCurrCode;
-
-    @Value("${vnpay.locale}")
-    private String vnpLocale;
-
-    @Value("${vnpay.order-type}")
-    private String vnpOrderType;
+    private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);
 
     @Autowired
-    private OrderService orderService;
+    private VNPayService vnPayService;
 
-    @PostMapping("/create")
-    public ResponseEntity<Map<String, String>> createPayment(@RequestBody Map<String, Object> request) throws Exception {
-        // Lấy user từ JWT (SecurityContext)
-        User user = (User) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+    @Autowired
+    private OrderRepository orderRepository;
 
-        String paymentMethod = "vnpay";
-        @SuppressWarnings("unchecked")
-        Map<String, String> shippingInfo = (Map<String, String>) request.get("shippingInfo");
+    @PostMapping("/vnpay/initiate")
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<?> initiateVNPayPayment(@RequestParam Long orderId, HttpServletRequest request) {
+        try {
+            logger.info("Initiating VNPay payment for order: {}", orderId);
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
 
-        // Tạo order từ cart
-        Order order = orderService.createOrderFromCart(user, paymentMethod, shippingInfo);
+            String currentUserId = SecurityContextHolder.getContext().getAuthentication().getName();
+            if (!order.getUserId().toString().equals(currentUserId)) {
+                logger.warn("User {} does not have permission to initiate payment for order {}", currentUserId, orderId);
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(new ErrorResponse("You do not have permission to initiate payment for this order", HttpStatus.FORBIDDEN.value()));
+            }
 
-        // Params từ request
-        long amount = (long) (order.getTotalAmount() * 100); // VNPay yêu cầu amount * 100
-        String orderInfo = (String) request.getOrDefault("orderInfo", "Thanh toan don hang " + order.getId());
-        String orderId = order.getId().toString();
-        String ipAddr = (String) request.getOrDefault("ipAddr", "127.0.0.1");
+            if (!"PENDING".equals(order.getStatus())) {
+                logger.warn("Order {} is not in PENDING status, current status: {}", orderId, order.getStatus());
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new ErrorResponse("Order is not in PENDING status", HttpStatus.BAD_REQUEST.value()));
+            }
 
-        // Build VNPay params (sắp xếp alphabet để hash đúng)
-        Map<String, String> vnpParams = new TreeMap<>();
-        vnpParams.put("vnp_Version", vnpVersion);
-        vnpParams.put("vnp_Command", vnpCommand);
-        vnpParams.put("vnp_TmnCode", vnpTmnCode);
-        vnpParams.put("vnp_Amount", String.valueOf(amount));
-        vnpParams.put("vnp_CurrCode", vnpCurrCode);
-        vnpParams.put("vnp_TxnRef", orderId);
-        vnpParams.put("vnp_OrderInfo", orderInfo);
-        vnpParams.put("vnp_OrderType", vnpOrderType);
-        vnpParams.put("vnp_Locale", vnpLocale);
-        vnpParams.put("vnp_ReturnUrl", vnpReturnUrl);
-        vnpParams.put("vnp_IpAddr", ipAddr);
-
-        Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
-        String vnpCreateDate = formatter.format(cld.getTime());
-        vnpParams.put("vnp_CreateDate", vnpCreateDate);
-
-        // Build query
-        StringBuilder query = new StringBuilder();
-        for (Map.Entry<String, String> entry : vnpParams.entrySet()) {
-            query.append(URLEncoder.encode(entry.getKey(), StandardCharsets.US_ASCII.toString()));
-            query.append("=");
-            query.append(URLEncoder.encode(entry.getValue(), StandardCharsets.US_ASCII.toString()));
-            query.append("&");
+            String ipAddress = request.getRemoteAddr();
+            String paymentUrl = vnPayService.createPaymentUrl(order, ipAddress);
+            return ResponseEntity.ok(new PaymentResponse(orderId, paymentUrl));
+        } catch (IllegalArgumentException e) {
+            logger.warn("Error initiating payment: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ErrorResponse(e.getMessage(), HttpStatus.BAD_REQUEST.value()));
+        } catch (Exception e) {
+            logger.error("Error initiating payment: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("System error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
         }
-        String queryUrl = query.substring(0, query.length() - 1);
-
-        // Tính secure hash
-        String signData = queryUrl;
-        String vnpSecureHash = hmacSHA512(vnpHashSecret, signData);
-        queryUrl += "&vnp_SecureHash=" + vnpSecureHash;
-
-        String paymentUrl = vnpPayUrl + "?" + queryUrl;
-
-        Map<String, String> response = new HashMap<>();
-        response.put("paymentUrl", paymentUrl);
-
-        return ResponseEntity.ok(response);
     }
 
-    private static String hmacSHA512(final String key, final String data) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA512");
-        SecretKeySpec secretKeySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA512");
-        mac.init(secretKeySpec);
-        byte[] hashBytes = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-        StringBuilder hash = new StringBuilder();
-        for (byte b : hashBytes) {
-            hash.append(String.format("%02x", b));
+    @GetMapping("/vnpay/callback")
+    public ResponseEntity<?> handleVNPayCallback(@RequestParam Map<String, String> params) {
+        logger.info("Received VNPay callback with params: {}", params);
+        try {
+            if (!vnPayService.verifyPaymentResponse(params)) {
+                logger.warn("Invalid payment signature for params: {}", params);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new ErrorResponse("Invalid payment signature", HttpStatus.BAD_REQUEST.value()));
+            }
+
+            vnPayService.processPaymentCallback(params);
+            String orderId = params.get("vnp_TxnRef");
+            String responseCode = params.get("vnp_ResponseCode");
+            logger.info("Callback response code: {} for order: {}", responseCode, orderId);
+
+            Map<String, String> response = new HashMap<>();
+            response.put("orderId", orderId);
+            response.put("status", "00".equals(responseCode) ? "SUCCESS" : 
+                                   responseCode.equals("07") ? "INVALID_FORMAT" : 
+                                   responseCode.equals("11") ? "TIMEOUT" : "FAILED");
+            response.put("message", getVNPayErrorMessage(responseCode));
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Error processing callback: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ErrorResponse(e.getMessage(), HttpStatus.BAD_REQUEST.value()));
+        } catch (Exception e) {
+            logger.error("Error processing callback: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("System error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
         }
-        return hash.toString();
+    }
+
+    private String getVNPayErrorMessage(String responseCode) {
+        switch (responseCode) {
+            case "00": return "Giao dịch thành công";
+            case "07": return "Dữ liệu gửi sang không đúng định dạng";
+            case "11": return "Giao dịch đã quá thời gian chờ thanh toán";
+            case "24": return "Giao dịch bị hủy bởi người dùng";
+            default: return "Giao dịch thất bại: Mã lỗi " + responseCode;
+        }
     }
 }

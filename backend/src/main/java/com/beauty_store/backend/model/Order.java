@@ -1,53 +1,45 @@
 package com.beauty_store.backend.model;
 
-import jakarta.persistence.*;
-import lombok.Data;
-
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Table(name = "orders")
 @Data
 public class Order {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    @Column(name = "user_id", nullable = false)
+    private Long userId;
+
+    @Column(name = "total_amount", nullable = false)
+    private BigDecimal totalAmount;
 
     @Column(nullable = false)
-    private double totalAmount;
+    private String status;
 
-    @Column(nullable = false)
-    private String status; // e.g., "PENDING", "PAID", "FAILED"
-
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
-    @Column
-    private String fullName;
-
-    @Column
-    private String phone;
-
-    @Column
-    private String email;
-
-    @Column
-    private String address;
-
-    @Column
-    private String city;
-
-    @Column
-    private String district;
-
-    @Column
+    @Column(name = "payment_method", nullable = false)
     private String paymentMethod;
 
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
-    private List<OrderItem> orderItems;
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @Column(name = "shipping_address")
+    private String shippingAddress;
+
+    private String note;
 }
