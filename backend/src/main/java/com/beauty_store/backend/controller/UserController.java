@@ -102,6 +102,8 @@ public ResponseEntity<?> getUserById(@PathVariable Long id) {
         userInfo.put("id", user.getId());
         userInfo.put("full_name", user.getFullName());
         userInfo.put("email", user.getEmail());
+        userInfo.put("phone", user.getPhone());
+        userInfo.put("address", user.getAddress());
         userInfo.put("role", user.getRole());
         return ResponseEntity.ok(userInfo);
     } catch (IllegalArgumentException e) {

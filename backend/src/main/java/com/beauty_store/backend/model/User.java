@@ -36,6 +36,12 @@ public class User {
     @Column(name = "is_online", nullable = false)
     private boolean isOnline = false; // Thêm cột is_online, mặc định là false
 
+    @Column(name = "phone")  // Thêm phone
+    private String phone;
+
+    @Column(name = "address")  // Thêm address
+    private String address;
+    
     public User(String fullName, String email, String password, String role) {
         this.fullName = fullName;
         this.email = email;
