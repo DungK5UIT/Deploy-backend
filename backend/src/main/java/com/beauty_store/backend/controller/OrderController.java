@@ -1,5 +1,7 @@
 package com.beauty_store.backend.controller;
 
+import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,9 +9,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.beauty_store.backend.model.ErrorResponse;
 import com.beauty_store.backend.model.Order;
@@ -49,6 +54,14 @@ public class OrderController {
             HttpServletRequest request) {
         try {
             logger.info("Creating order for user: {}", orderRequest.getUserId());
+            
+            String paymentMethod = orderRequest.getPaymentMethod().toUpperCase();
+            
+            // Adjust payment method for COD to match service validation
+            if ("COD".equals(paymentMethod)) {
+                orderRequest.setPaymentMethod("CASH_ON_DELIVERY");
+            }
+            
             Order order = orderService.createOrder(
                     orderRequest.getUserId(),
                     orderRequest.getPaymentMethod(),
@@ -56,13 +69,14 @@ public class OrderController {
                     orderRequest.getNote()
             );
 
-            if ("VNPAY".equalsIgnoreCase(orderRequest.getPaymentMethod())) {
+            if ("VNPAY".equals(paymentMethod)) {
                 String ipAddress = request.getRemoteAddr();
                 String paymentUrl = vnPayService.createPaymentUrl(order, ipAddress);
                 return ResponseEntity.ok(new PaymentResponse(order.getId(), paymentUrl));
+            } else {
+                // For COD or other methods, return the order directly
+                return ResponseEntity.ok(order);
             }
-
-            return ResponseEntity.ok(order);
         } catch (IllegalArgumentException e) {
             logger.warn("Error creating order: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
