@@ -8,4 +8,5 @@ import com.beauty_store.backend.model.Order;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUserId(Long userId);
+    
 }
