@@ -1,6 +1,8 @@
 package com.beauty_store.backend.controller;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +21,8 @@ import com.beauty_store.backend.dto.LoginRequest;
 import com.beauty_store.backend.dto.LogoutRequest;
 import com.beauty_store.backend.dto.UserDTO;
 import com.beauty_store.backend.model.ErrorResponse;
+import com.beauty_store.backend.model.User;
+import com.beauty_store.backend.repository.UserRepository;
 import com.beauty_store.backend.response.AuthResponse;
 import com.beauty_store.backend.service.UserService;
 
@@ -82,4 +88,25 @@ public class UserController {
                     .body(new ErrorResponse("Lỗi hệ thống", HttpStatus.INTERNAL_SERVER_ERROR.value()));
         }
     }
+
+@Autowired
+private UserRepository userRepository;
+@GetMapping("/users/{id}")
+@PreAuthorize("#id == principal")  // Chỉ user sở hữu mới access
+public ResponseEntity<?> getUserById(@PathVariable Long id) {
+    try {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        // Trả về DTO để ẩn password
+        Map<String, Object> userInfo = new HashMap<>();
+        userInfo.put("id", user.getId());
+        userInfo.put("full_name", user.getFullName());
+        userInfo.put("email", user.getEmail());
+        userInfo.put("role", user.getRole());
+        return ResponseEntity.ok(userInfo);
+    } catch (IllegalArgumentException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse(e.getMessage(), HttpStatus.NOT_FOUND.value()));
+    }
+}
 }

@@ -6,13 +6,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 import com.beauty_store.backend.model.ErrorResponse;
 import com.beauty_store.backend.model.Order;
+import com.beauty_store.backend.model.OrderItem;
+import com.beauty_store.backend.repository.OrderItemRepository;
+import com.beauty_store.backend.repository.OrderRepository;
 import com.beauty_store.backend.service.OrderService;
 import com.beauty_store.backend.service.VNPayService;
 
@@ -32,6 +35,12 @@ public class OrderController {
 
     @Autowired
     private VNPayService vnPayService;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderItemRepository orderItemRepository;
 
     @PostMapping("/create")
     @PreAuthorize("hasRole('USER')")
@@ -64,8 +73,33 @@ public class OrderController {
                     .body(new ErrorResponse("Lỗi hệ thống: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR.value()));
         }
     }
+
+    @GetMapping("/user/{userId}")
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<?> getOrdersByUser(@PathVariable Long userId, Authentication authentication) {
+        try {
+            // Nếu username là ID, bạn có thể so sánh ở đây
+            String loggedInUserId = authentication.getName();
+            if (!loggedInUserId.equals(String.valueOf(userId))) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(new ErrorResponse("Bạn không được phép truy cập đơn hàng của người khác", HttpStatus.FORBIDDEN.value()));
+            }
+
+            List<Order> orders = orderRepository.findByUserId(userId);
+            for (Order order : orders) {
+                List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+                order.setItems(items); // @Transient trong model Order
+            }
+            return ResponseEntity.ok(orders);
+        } catch (Exception e) {
+            logger.error("Error fetching orders: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ErrorResponse("Error fetching orders", HttpStatus.INTERNAL_SERVER_ERROR.value()));
+        }
+    }
 }
 
+// DTO Request
 class OrderRequest {
     @NotNull(message = "User ID is required")
     private Long userId;
@@ -78,40 +112,18 @@ class OrderRequest {
 
     private String note;
 
-    // Getters and setters
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-
-    public String getPaymentMethod() {
-        return paymentMethod;
-    }
-
-    public void setPaymentMethod(String paymentMethod) {
-        this.paymentMethod = paymentMethod;
-    }
-
-    public String getShippingAddress() {
-        return shippingAddress;
-    }
-
-    public void setShippingAddress(String shippingAddress) {
-        this.shippingAddress = shippingAddress;
-    }
-
-    public String getNote() {
-        return note;
-    }
-
-    public void setNote(String note) {
-        this.note = note;
-    }
+    // Getters & Setters
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public String getPaymentMethod() { return paymentMethod; }
+    public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
+    public String getShippingAddress() { return shippingAddress; }
+    public void setShippingAddress(String shippingAddress) { this.shippingAddress = shippingAddress; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }
 
+// DTO Response cho VNPay
 class PaymentResponse {
     private Long orderId;
     private String paymentUrl;
@@ -121,19 +133,8 @@ class PaymentResponse {
         this.paymentUrl = paymentUrl;
     }
 
-    public Long getOrderId() {
-        return orderId;
-    }
-
-    public void setOrderId(Long orderId) {
-        this.orderId = orderId;
-    }
-
-    public String getPaymentUrl() {
-        return paymentUrl;
-    }
-
-    public void setPaymentUrl(String paymentUrl) {
-        this.paymentUrl = paymentUrl;
-    }
+    public Long getOrderId() { return orderId; }
+    public void setOrderId(Long orderId) { this.orderId = orderId; }
+    public String getPaymentUrl() { return paymentUrl; }
+    public void setPaymentUrl(String paymentUrl) { this.paymentUrl = paymentUrl; }
 }
