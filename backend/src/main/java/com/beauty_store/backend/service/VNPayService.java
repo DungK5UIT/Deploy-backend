@@ -127,13 +127,17 @@ public class VNPayService {
         return paymentUrl;
     }
 
-    public boolean verifyPaymentResponse(Map<String, String> params) throws UnsupportedEncodingException {
-        String queryString = buildQueryString(new TreeMap<>(params));
-        String calculatedHash = generateSecureHash(queryString);
-
-        logger.info("Verifying payment response: vnp_SecureHash={}, calculatedHash={}", params.get("vnp_SecureHash"), calculatedHash);
-        return params.get("vnp_SecureHash") != null && params.get("vnp_SecureHash").equals(calculatedHash);
+   public boolean verifyPaymentResponse(Map<String, String> params) throws UnsupportedEncodingException {
+    Map<String, String> paramsWithoutHash = new TreeMap<>(params);
+    String receivedHash = paramsWithoutHash.remove("vnp_SecureHash");  // Remove trước khi build
+    if (receivedHash == null) {
+        return false;  // Không có hash → invalid
     }
+    String queryString = buildQueryString(paramsWithoutHash);
+    String calculatedHash = generateSecureHash(queryString);
+    logger.info("Verifying payment response: receivedHash={}, calculatedHash={}", receivedHash, calculatedHash);
+    return receivedHash.equals(calculatedHash);
+}
 
     public void processPaymentCallback(Map<String, String> params) {
         logger.info("Processing VNPay callback: vnp_TxnRef={}, vnp_ResponseCode={}, vnp_TransactionNo={}", 
