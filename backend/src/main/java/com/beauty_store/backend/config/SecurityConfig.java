@@ -37,6 +37,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+            	.requestMatchers("/").permitAll() // <-- Thêm dòng này
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/products/list").permitAll()
                 .requestMatchers("/api/pay/vnpay/callback").permitAll()
